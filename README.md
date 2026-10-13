@@ -207,9 +207,11 @@ On the third restart attempt within a rolling 60 seconds, that session is marked
 status is displayed even if you normally hide the status bar. `restart_limit`,
 `restart_window`, and `restart_delay` configure this policy.
 
-Use prefix + r to manually retry a failed session with a fresh restart budget.
-With automatic restarts disabled, an exited session waits for this manual action.
-The binding also restarts a running command, so use it when you intend to reconnect.
+Use prefix + r to restart the active command or SSH session. Every manual restart
+clears that session's automatic restart counter and failure state, including when
+the command is still running or has not reached the limit. With automatic restarts
+disabled, an exited session waits for this manual action. The `reconnect` binding
+configures the restart key.
 Quitting tcar closes all
 its connections and local commands. Normal exit and handled termination signals
 restore the terminal and clean up the private server.

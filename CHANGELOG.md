@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2 — 2026-10-13
+
+- Make every manual restart (prefix + r by default) clear the active session's
+  automatic restart counter and failure state, even before it reaches FAILED.
+- Preserve automatic retry counts and other sessions' restart budgets.
+
 ## 1.0.1 — 2026-10-13
 
 - Add configurable automatic restart for exited local commands and SSH sessions.

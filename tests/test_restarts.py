@@ -24,7 +24,29 @@ class RestartTests(unittest.TestCase):
         policy = Restarts(1, 60, 1)
         self.assertIsNone(policy.observe("one", "1", True, 0))
         self.assertEqual(policy.observe("one", "1", True, 1), "failed")
-        self.assertEqual(policy.observe("one", "2", False, 2), "reset")
+        self.assertEqual(policy.observe("one", "2", False, 2, "2"), "reset")
         self.assertFalse(policy.has_failures)
-        self.assertIsNone(policy.observe("one", "2", True, 3))
-        self.assertEqual(policy.observe("one", "2", True, 4), "failed")
+        self.assertIsNone(policy.observe("one", "2", True, 3, "2"))
+        self.assertEqual(policy.observe("one", "2", True, 4, "2"), "failed")
+
+    def test_manual_restart_of_running_command_resets_only_its_budget(self):
+        policy = Restarts(3, 60, 0)
+        for window in ("one", "two"):
+            self.assertEqual(policy.observe(window, "1", True, 0), "restart")
+            self.assertEqual(policy.observe(window, "2", True, 1), "restart")
+        self.assertIsNone(policy.observe("one", "3", False, 2))
+        self.assertEqual(policy.observe("one", "4", False, 3, "4"), "reset")
+        self.assertEqual(policy.observe("two", "3", True, 3), "failed")
+        self.assertEqual(policy.observe("one", "4", True, 4, "4"), "restart")
+        self.assertEqual(policy.observe("one", "5", True, 5, "4"), "restart")
+        self.assertEqual(policy.observe("one", "6", True, 6, "4"), "failed")
+
+    def test_manual_restart_clears_pending_delay_and_retry(self):
+        policy = Restarts(3, 60, 1)
+        self.assertIsNone(policy.observe("one", "1", True, 0))
+        self.assertEqual(policy.observe("one", "2", True, 0.5, "2"), "reset")
+        self.assertIsNone(policy.observe("one", "2", True, 0.75, "2"))
+        self.assertEqual(policy.observe("one", "2", True, 1.75, "2"), "restart")
+        self.assertEqual(policy.observe("one", "3", False, 2, "3"), "reset")
+        self.assertIsNone(policy.observe("one", "3", True, 3, "3"))
+        self.assertEqual(policy.observe("one", "3", True, 4, "3"), "restart")

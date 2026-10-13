@@ -146,12 +146,40 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(self.backend.run("display-message", "-p", "-t", window, "#{@tcar_failed}"), "0")
         self.assertEqual(self.backend.run("show-options", "-gv", "status"), "off")
 
+    def test_manual_restart_before_failure_grants_fresh_automatic_retries(self):
+        self.backend.close()
+        counter = Path(self.directory.name) / "starts"
+        script = "from pathlib import Path; p=Path(%r); p.write_text((p.read_text() if p.exists() else '')+'x')" % str(counter)
+        self.backend = TmuxBackend(Config((Machine("crashing", local_command=(sys.executable, "-c", script)),),
+                                          restart_on_exit=True, restart_delay=0))
+        self.addCleanup(self.backend.close)
+        self.backend.start(100, 30)
+        window = self.backend.windows[0]
+
+        def wait_for_exit(starts):
+            wait_for(lambda: counter.exists() and counter.read_text() == "x" * starts and
+                     self.backend.run("display-message", "-p", "-t", window, "#{pane_dead}") == "1")
+
+        for index, now in enumerate((0, 1), 1):
+            wait_for_exit(index)
+            self.backend.maintain(now)
+        wait_for_exit(3)
+        self.backend.reconnect()  # Manual restart before the third attempt fails.
+        wait_for_exit(4)
+        self.backend.maintain(2)
+        self.assertEqual(self.backend.run("display-message", "-p", "-t", window, "#{@tcar_failed}"), "0")
+        for index, now in enumerate((3, 4, 5), 4):
+            wait_for_exit(index)
+            self.backend.maintain(now)
+        self.assertEqual(counter.read_text(), "xxxxxx")
+        self.assertEqual(self.backend.run("display-message", "-p", "-t", window, "#{@tcar_failed}"), "1")
+
     def test_bridge_input_order_prefix_rotation_resize_and_cleanup(self):
         self.backend.close()
         config = Path(self.directory.name) / "config.toml"
         # Serialize argv as JSON arrays, which are valid TOML string arrays here.
         import json
-        config.write_text('[carousel]\nidle_timeout = 0.5\ninterval = 0.3\nauto_rotate = false\n' +
+        config.write_text('[carousel]\nidle_timeout = 0.5\ninterval = 0.3\nauto_rotate = false\nrestart_on_exit = true\n' +
                           "".join(f'[[machines]]\nname = "{machine.name}"\nlocal_command = {json.dumps(machine.argv())}\n'
                                   for machine in self.backend.config.machines))
         socket_file = Path(self.directory.name) / "socket-path"
@@ -191,6 +219,15 @@ class IntegrationTests(unittest.TestCase):
         wait_for(lambda: b"\x07q\x07\x1b[C" in self.paths[1].read_bytes(), pump)
         self.assertIsNone(process.poll())
         self.assertEqual(tmux("display-message", "-p", "-t", "tcar:", "#{window_name}"), "machine-1")
+        pids = tmux("list-panes", "-s", "-t", "tcar", "-F", "#{pane_pid}").splitlines()
+        os.write(master, b"\x07r")
+        wait_for(lambda: tmux("display-message", "-p", "-t", "tcar:", "#{pane_pid}") != pids[1], pump)
+        wait_for(lambda: tmux("display-message", "-p", "-t", "tcar:", "#{@tcar_failed}") == "0", pump)
+        new_pids = tmux("list-panes", "-s", "-t", "tcar", "-F", "#{pane_pid}").splitlines()
+        self.assertEqual(new_pids[0], pids[0])
+        self.assertNotEqual(new_pids[1], pids[1])
+        self.assertEqual(new_pids[2], pids[2])
+        self.assertEqual(tmux("display-message", "-p", "-t", "tcar:", "#{@tcar_manual_restart}"), new_pids[1])
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
         os.kill(process.pid, signal.SIGWINCH)
         wait_for(lambda: tmux("display-message", "-p", "-t", "tcar:", "#{pane_width}x#{pane_height}") == "120x39", pump)

@@ -87,7 +87,8 @@ class TmuxBackend:
         commands.extend([";", "set-option", "-s", "escape-time", "10"])
         # Manual switches travel through the same client stream as application
         # input. This preserves ordering when a read contains typing AND a switch.
-        for key, command in (("Left", "previous-window"), ("Right", "next-window"), ("Home", "respawn-window -k")):
+        manual_restart = "respawn-window -k ; set-option -w -F @tcar_manual_restart '#{pane_pid}'"
+        for key, command in (("Left", "previous-window"), ("Right", "next-window"), ("Home", manual_restart)):
             if len(self.config.machines) == 1 and key in ("Left", "Right"):
                 command = "select-window"
             commands.extend([";", "bind-key", "-T", "prefix", key, command])
@@ -105,18 +106,20 @@ class TmuxBackend:
         self.run("next-window" if delta > 0 else "previous-window", "-t", "tcar")
 
     def reconnect(self) -> None:
-        self.run("respawn-window", "-k", "-t", "tcar:")
+        self.run("respawn-window", "-k", "-t", "tcar:",
+                 ";", "set-option", "-w", "-t", "tcar:", "-F", "@tcar_manual_restart", "#{pane_pid}")
 
     def maintain(self, now: float) -> None:
         if not self.config.restart_on_exit or now < self._next_maintenance:
             return
         self._next_maintenance = now + 0.25
-        rows = self.run("list-panes", "-s", "-t", "tcar", "-F", "#{window_id}\t#{pane_pid}\t#{pane_dead}")
+        rows = self.run("list-panes", "-s", "-t", "tcar", "-F",
+                        "#{window_id}\t#{pane_pid}\t#{@tcar_manual_restart}\t#{pane_dead}")
         for row in rows.splitlines():
-            window, pid, dead = row.split("\t")
+            window, pid, manual_restart, dead = row.split("\t")
             if window not in self.windows:
                 continue
-            action = self.restarts.observe(window, pid, dead == "1", now)
+            action = self.restarts.observe(window, pid, dead == "1", now, manual_restart)
             if action == "restart":
                 self.run("respawn-window", "-k", "-t", window)
             elif action == "failed":

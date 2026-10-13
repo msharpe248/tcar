@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 @dataclass
 class Session:
     pid: str = ""
+    manual_restart: str = ""
     dead_since: float | None = None
     attempts: deque = field(default_factory=deque)
     failed: bool = False
@@ -22,16 +23,17 @@ class Restarts:
     def has_failures(self) -> bool:
         return any(session.failed for session in self.sessions.values())
 
-    def observe(self, window: str, pid: str, dead: bool, now: float) -> str | None:
+    def observe(self, window: str, pid: str, dead: bool, now: float,
+                manual_restart: str = "") -> str | None:
         session = self.sessions.setdefault(window, Session())
+        if session.manual_restart != manual_restart:
+            # The backend tags manual respawns with the new PID. Automatic
+            # respawns leave this tag unchanged, preserving their retry budget.
+            self.sessions[window] = Session(pid=pid, manual_restart=manual_restart)
+            return "reset"
         if session.pid != pid:
-            was_failed = session.failed
             session.pid, session.dead_since = pid, None
             session.restarting = False
-            if was_failed:  # A manual restart retries a failed session with a fresh budget.
-                session.failed = False
-                session.attempts.clear()
-                return "reset"
         if not dead:
             session.dead_since = None
             return None
