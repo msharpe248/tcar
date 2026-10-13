@@ -130,8 +130,9 @@ class IntegrationTests(unittest.TestCase):
         self.backend.start(100, 30)
         window = self.backend.windows[0]
         healthy = self.backend.run("display-message", "-p", "-t", self.backend.windows[1], "#{pane_pid}")
-        for now in (0, 1, 2):
-            wait_for(lambda: self.backend.run("display-message", "-p", "-t", window, "#{pane_dead_status}") == "0")
+        for index, now in enumerate((0, 1, 2), 1):
+            wait_for(lambda: counter.exists() and counter.read_text() == "x" * index and
+                     self.backend.run("display-message", "-p", "-t", window, "#{pane_dead}") == "1")
             self.backend.maintain(now)
         self.assertEqual(counter.read_text(), "xxx")  # Initial launch and two automatic retries.
         self.assertEqual(self.backend.run("display-message", "-p", "-t", window, "#{@tcar_failed}"), "1")
