@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import math
 import os
 from pathlib import Path
+import re
 import shlex
 import tomllib
 
@@ -24,8 +25,13 @@ class Machine:
     command: str = "btop"
     ssh_args: tuple[str, ...] = ()
     local_command: tuple[str, ...] = ()
+    ssh_command: tuple[str, ...] = ()
 
     def argv(self) -> list[str]:
+        if self.ssh_command:
+            values = {"host": self.host or "", "command": self.command}
+            return [re.sub(r"\{(host|command)\}", lambda match: values[match[1]], arg)
+                    for arg in self.ssh_command]
         if self.host is None:
             return list(self.local_command)
         return ["ssh", "-tt", *self.ssh_args, "--", self.host, self.command]
@@ -92,6 +98,15 @@ def _duration(value, label: str, allow_zero: bool = False) -> float:
     return float(value)
 
 
+def _ssh_command(value, label: str, host: str | None) -> tuple[str, ...]:
+    template = _argv(value, label, True)
+    if not any("{command}" in arg for arg in template):
+        raise ValueError(f"{label} must include a {{command}} placeholder")
+    if host is None and any("{host}" in arg for arg in template):
+        raise ValueError(f"{label} uses {{host}} but no host is configured")
+    return template
+
+
 def load_config(path: Path) -> Config:
     with path.open("rb") as source:
         data = tomllib.load(source)
@@ -126,23 +141,29 @@ def load_config(path: Path) -> Config:
         label = f"machines[{index}]"
         if not isinstance(record, dict):
             raise ValueError(f"{label} must be a TOML table")
-        _known(record, {"name", "host", "command", "ssh_args", "local_command"}, label)
+        _known(record, {"name", "host", "command", "ssh_args", "local_command", "ssh_command"}, label)
         name = _string(record.get("name"), f"{label}.name")
         if any(ord(c) < 32 or ord(c) == 127 for c in name) or name in names:
             raise ValueError(f"{label}.name must be unique and contain no control characters")
         names.add(name)
-        if ("host" in record) == ("local_command" in record):
-            raise ValueError(f"{label} must specify exactly one of host or local_command")
         if "local_command" in record:
-            if "command" in record or "ssh_args" in record:
-                raise ValueError(f"{label}: command and ssh_args are only valid for SSH machines")
+            if any(key in record for key in ("host", "command", "ssh_args", "ssh_command")):
+                raise ValueError(f"{label}: local_command cannot be combined with SSH options")
             machines.append(Machine(name, local_command=_argv(record["local_command"], f"{label}.local_command", True)))
         else:
-            host = _string(record["host"], f"{label}.host")
-            if host.startswith("-") or any(c.isspace() for c in host):
+            if "host" not in record and "ssh_command" not in record:
+                raise ValueError(f"{label} must specify host, ssh_command, or local_command")
+            host = _string(record["host"], f"{label}.host") if "host" in record else None
+            if host is not None and (host.startswith("-") or any(c.isspace() for c in host)):
                 raise ValueError(f"{label}.host must be an SSH alias or user@hostname")
+            template = ()
+            if "ssh_command" in record:
+                if "ssh_args" in record:
+                    raise ValueError(f"{label}: put SSH arguments inside ssh_command instead of ssh_args")
+                template = _ssh_command(record["ssh_command"], f"{label}.ssh_command", host)
             machines.append(Machine(name, host, _string(record.get("command", command), f"{label}.command"),
-                                    _argv(record.get("ssh_args", list(ssh_args)), f"{label}.ssh_args")))
+                                    _argv(record.get("ssh_args", list(ssh_args)), f"{label}.ssh_args"),
+                                    ssh_command=template))
     restart_limit = carousel.get("restart_limit", 3)
     if type(restart_limit) is not int or restart_limit < 1:
         raise ValueError("carousel.restart_limit must be a positive integer")

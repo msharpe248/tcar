@@ -2,6 +2,7 @@
 
 import errno
 import fcntl
+import json
 import os
 from pathlib import Path
 import select
@@ -119,6 +120,34 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(len(self.backend.run("list-windows", "-t", "tcar").splitlines()), 1)
         self.assertEqual(self.backend.run("show-options", "-gv", "status"), "off")
 
+    def test_custom_ssh_wrapper_receives_literal_arguments_on_launch_and_restarts(self):
+        self.backend.close()
+        log = Path(self.directory.name) / "wrapper-args"
+        wrapper = Path(self.directory.name) / "bastion wrapper"
+        wrapper.write_text(f"#!{sys.executable}\nimport json, sys\n"
+                           f"with open({str(log)!r}, 'a') as log:\n"
+                           "    log.write(json.dumps(sys.argv[1:]) + '\\n')\n")
+        wrapper.chmod(0o755)
+        remote_command = 'printf "%s" "$HOME; {host} {command}"'
+        machine = Machine("wrapped", host="me@internal", command=remote_command,
+                          ssh_command=(str(wrapper), "--via", "bastion", "{host}", "{command}"))
+        self.backend = TmuxBackend(Config((machine,), restart_on_exit=True, restart_delay=0))
+        self.addCleanup(self.backend.close)
+        self.backend.start(100, 30)
+        window = self.backend.windows[0]
+
+        def wait_for_exit(starts):
+            wait_for(lambda: log.exists() and len(log.read_text().splitlines()) == starts and
+                     self.backend.run("display-message", "-p", "-t", window, "#{pane_dead}") == "1")
+
+        wait_for_exit(1)
+        self.backend.maintain(0)
+        wait_for_exit(2)
+        self.backend.reconnect()
+        wait_for_exit(3)
+        expected = ["--via", "bastion", "me@internal", remote_command]
+        self.assertEqual([json.loads(line) for line in log.read_text().splitlines()], [expected] * 3)
+
     def test_automatic_restart_stops_at_limit_and_manual_retry_resets(self):
         self.backend.close()
         counter = Path(self.directory.name) / "starts"
@@ -178,7 +207,6 @@ class IntegrationTests(unittest.TestCase):
         self.backend.close()
         config = Path(self.directory.name) / "config.toml"
         # Serialize argv as JSON arrays, which are valid TOML string arrays here.
-        import json
         config.write_text('[carousel]\nidle_timeout = 0.5\ninterval = 0.3\nauto_rotate = false\nrestart_on_exit = true\n' +
                           "".join(f'[[machines]]\nname = "{machine.name}"\nlocal_command = {json.dumps(machine.argv())}\n'
                                   for machine in self.backend.config.machines))

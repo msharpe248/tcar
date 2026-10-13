@@ -1,4 +1,5 @@
 from pathlib import Path
+import shlex
 import tempfile
 import unittest
 
@@ -47,6 +48,51 @@ name = "local"
 local_command = ["printf", "%s", "$(touch /tmp/should-not-exist); hello"]
 ''')
         self.assertIn("'$(touch /tmp/should-not-exist); hello'", config.machines[0].shell_command())
+
+    def test_custom_ssh_command_preserves_arguments_and_overrides_ssh_defaults(self):
+        config = self.load('''
+[defaults]
+ssh_args = ["-p", "2222"]
+[[machines]]
+name = "bastion"
+host = "me@internal"
+command = 'printf "%s" "$HOME; {host} {command}"'
+ssh_command = ["/path with spaces/bastion-ssh", "--via", "gateway", "{host}", "{command}"]
+''')
+        machine = config.machines[0]
+        expected = ["/path with spaces/bastion-ssh", "--via", "gateway", "me@internal",
+                    'printf "%s" "$HOME; {host} {command}"']
+        self.assertEqual(machine.argv(), expected)
+        self.assertEqual(shlex.split(machine.shell_command()), ["exec", *expected])
+
+    def test_custom_ssh_command_without_host_and_with_embedded_placeholder(self):
+        config = self.load('''
+[defaults]
+command = "btop --utf-force"
+[[machines]]
+name = "wrapped"
+ssh_command = ["environment-ssh", "--command={command}", "${LITERAL}"]
+[[machines]]
+name = "normal"
+host = "normal"
+''')
+        self.assertIsNone(config.machines[0].host)
+        self.assertEqual(config.machines[0].argv(), ["environment-ssh", "--command=btop --utf-force", "${LITERAL}"])
+        self.assertEqual(config.machines[1].argv(), ["ssh", "-tt", "-o", "ServerAliveInterval=15", "-o",
+                                                   "ServerAliveCountMax=3", "--", "normal", "btop --utf-force"])
+
+    def test_invalid_custom_ssh_commands(self):
+        remote = '[[machines]]\nname = "wrapped"\n'
+        for options in (
+            'ssh_command = []', 'ssh_command = [" ", "{command}"]',
+            'ssh_command = "wrapper {command}"', 'ssh_command = [1, "{command}"]',
+            'ssh_command = ["wrapper"]', 'ssh_command = ["wrapper", "{cmd}"]',
+            'ssh_command = ["wrapper", "{host}", "{command}"]',
+            'ssh_command = ["wrapper", "{command}"]\nssh_args = []',
+            'ssh_command = ["wrapper", "{command}"]\nlocal_command = ["btop"]',
+        ):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                self.load(remote + options)
 
     def test_invalid_configurations(self):
         local = '[[machines]]\nname = "local"\nlocal_command = ["btop"]\n'

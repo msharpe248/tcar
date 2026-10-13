@@ -166,7 +166,8 @@ host = "me@build.example.com"
 command = "top"
 ```
 
-Each machine specifies exactly one of `host` or `local_command`. Local commands
+Each machine specifies `host` (optionally with `ssh_command`), `ssh_command`, or
+`local_command`. Local commands
 are argument arrays, so shell characters are passed literally. To explicitly run
 a local shell pipeline, use `local_command = ["sh", "-lc", "your pipeline"]`.
 Remote `command` is a shell command interpreted by the SSH server, as with
@@ -177,6 +178,30 @@ host-key checks. Sessions request a remote PTY with `ssh -tt`. Per-machine
 `ssh_args` replaces the defaults; include the keepalive options if you override
 it and still want keepalives. Authentication prompts remain interactive in each
 machine's view.
+
+To use a bastion wrapper or a different SSH executable, set `ssh_command` on
+that machine:
+
+```toml
+[[machines]]
+name = "production"
+host = "me@internal-server"
+command = "btop --utf-force"
+ssh_command = ["/usr/local/bin/bastion-ssh", "{host}", "{command}"]
+```
+
+`ssh_command` is the complete argument array to execute locally. `{command}`
+is required and is replaced with the remote `command`; `{host}` is optional and
+is replaced with `host`. Omit `host` when the wrapper already knows its target.
+Placeholders can also appear within arguments, such as `"--command={command}"`.
+Replacement text stays in its argument, including spaces and shell characters;
+it is not split or expanded by a local shell. Only `{host}` and `{command}` are
+substituted. Other text is passed literally.
+
+The template replaces the standard `ssh -tt ...` invocation, including the
+default `ssh_args`. Include any PTY, keepalive, port, or bastion options your
+wrapper needs in the template itself; `ssh_args` cannot be set alongside it on
+the same machine. Manual and automatic restarts run the same template again.
 
 Bindings accept ASCII characters, `C-a` through `C-z` and ASCII control keys,
 `Left`, `Right`, `Up`, `Down`, `Home`, `End`, `PageUp`, `PageDown`, `Space`, `Tab`,

@@ -34,3 +34,6 @@ name = "server-two"
 host = "server-two"
 # command = "top"      # Override the default remote command per machine.
 # ssh_args = ["-p", "2222", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]
+# ssh_command = ["/path/to/bastion-ssh", "{host}", "{command}"]
+# Custom ssh_command replaces the full SSH invocation, including ssh_args.
+# {command} is required; host may be omitted if the wrapper knows its target.

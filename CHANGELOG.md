@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0 — 2026-10-13
+
+- Add per-machine `ssh_command` argument templates for bastion wrappers and
+  custom SSH executables, with `{command}` and optional `{host}` placeholders.
+- Allow wrappers that already know their destination to omit `host`.
+- Preserve command arguments literally and reuse templates on manual and
+  automatic restarts.
+
 ## 1.0.2 — 2026-10-13
 
 - Make every manual restart (prefix + r by default) clear the active session's

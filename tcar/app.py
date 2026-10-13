@@ -204,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Configuration OK: {len(config.machines)} machines; prefix {config.prefix}; "
                   f"idle {config.idle_timeout:g}s; interval {config.interval:g}s")
             for machine in config.machines:
-                print(f"  {machine.name} ({'SSH' if machine.host else 'local'}): {machine.shell_command()}")
+                print(f"  {machine.name} ({'SSH' if machine.host or machine.ssh_command else 'local'}): {machine.shell_command()}")
             return 0
         return Carousel(config).run()
     except FileExistsError:
