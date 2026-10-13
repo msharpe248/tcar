@@ -111,6 +111,7 @@ class IntegrationTests(unittest.TestCase):
         self.backend.start(100, 30)
         self.assertTrue(wait_for(lambda: self.backend.run("display-message", "-p", "-t", self.backend.windows[0], "#{pane_dead}") == "1"))
         window = self.backend.windows[0]
+        wait_for(lambda: "restart" in self.backend.run("capture-pane", "-p", "-t", window))
         self.assertIn("done", self.backend.run("capture-pane", "-p", "-S", "-", "-t", window))
         visible = self.backend.run("capture-pane", "-p", "-t", window)
         self.assertIn("command exited (status 0)", visible)
@@ -130,6 +131,8 @@ class IntegrationTests(unittest.TestCase):
                         backend.start(100, 30)
                         window = backend.windows[0]
                         wait_for(lambda: backend.run("display-message", "-p", "-t", window, "#{pane_dead}") == "1")
+                        # PTY closure can precede SIGCHLD and the exit notice's render.
+                        wait_for(lambda: "restart" in backend.run("capture-pane", "-p", "-t", window))
                         visible = backend.run("capture-pane", "-p", "-t", window)
                         self.assertIn(f"local: command exited (status {exit_code})", visible)
                         self.assertIn("Ctrl+X then k: restart", visible)
@@ -144,6 +147,7 @@ class IntegrationTests(unittest.TestCase):
         self.backend.start(100, 30)
         window = self.backend.windows[0]
         wait_for(lambda: self.backend.run("display-message", "-p", "-t", window, "#{pane_dead}") == "1")
+        wait_for(lambda: "restart" in self.backend.run("capture-pane", "-p", "-t", window))
         visible = self.backend.run("capture-pane", "-p", "-t", window)
         self.assertIn("command exited (signal ", visible)
         self.assertIn("# then r: restart", visible)
@@ -218,6 +222,7 @@ class IntegrationTests(unittest.TestCase):
         previous_pid = tmux("display-message", "-p", "-t", "tcar:", "#{pane_pid}")
         os.write(master, b"q")
         wait_for(lambda: tmux("display-message", "-p", "-t", "tcar:", "#{pane_dead}") == "1", pump)
+        wait_for(lambda: "restart" in tmux("capture-pane", "-p", "-t", "tcar:"), pump)
         self.assertIn("Ctrl+G then r: restart", tmux("capture-pane", "-p", "-t", "tcar:"))
         os.write(master, b"\x07r")
         wait_for(lambda: tmux("display-message", "-p", "-t", "tcar:", "#{pane_dead}") == "0" and
