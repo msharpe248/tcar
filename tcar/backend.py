@@ -8,6 +8,7 @@ import tempfile
 
 from .config import Config
 from .keys import prefix_sequence
+from .restarts import Restarts
 
 
 class BackendError(RuntimeError):
@@ -34,6 +35,8 @@ class TmuxBackend:
         self.windows: list[str] = []
         self._closed = False
         self._mode = None
+        self.restarts = Restarts(config.restart_limit, config.restart_window, config.restart_delay)
+        self._next_maintenance = 0
 
     def native_prefix(self) -> str:
         code = prefix_sequence(self.config.prefix)[0]
@@ -60,17 +63,6 @@ class TmuxBackend:
             raise BackendError(result.stderr.strip() or "tmux did not create its server socket")
         return result.stdout.strip()
 
-    def exit_notice(self) -> str:
-        def label(key: str) -> str:
-            if len(key) == 3 and key[:2].lower() == "c-":
-                key = "Ctrl+" + key[2].upper()
-            return key.replace("#", "##")
-
-        prefix = label(self.config.prefix)
-        restart = label(self.config.bindings["reconnect"])
-        reason = "#{?pane_dead_signal,signal #{pane_dead_signal},status #{pane_dead_status}}"
-        return "#{window_name}: command exited (" + reason + f"). {prefix} then {restart}: restart"
-
     def start(self, columns: int, lines: int) -> None:
         # Configure remain-on-exit before launching programs, even short-lived ones.
         self.run("new-session", "-d", "-s", "tcar", "-x", str(columns), "-y", str(lines),
@@ -83,10 +75,10 @@ class TmuxBackend:
             "status-style": "bg=colour234,fg=colour250", "status-left": " tcar ",
             "status-left-length": "8", "status-right-length": "80", "status-interval": "1",
             "status-justify": "left", "automatic-rename": "off", "allow-rename": "off",
-            "remain-on-exit": "on", "remain-on-exit-format": self.exit_notice(),
+            "remain-on-exit": "on", "remain-on-exit-format": "",
             "window-size": "largest", "aggressive-resize": "off",
-            "window-status-format": " #I:#W#{?pane_dead, (exited),} ",
-            "window-status-current-format": "#[bg=colour24,fg=colour255,bold] #I:#W#{?pane_dead, (exited),} #[default]",
+            "window-status-format": " #I:#W#{?@tcar_failed, [FAILED],#{?pane_dead, (exited),}} ",
+            "window-status-current-format": "#[bg=colour24,fg=colour255,bold] #I:#W#{?@tcar_failed, [FAILED],#{?pane_dead, (exited),}} #[default]",
         }
         # One command transaction avoids dozens of server round trips.
         commands: list[str] = ["unbind-key", "-a", ";", "unbind-key", "-a", "-T", "root"]
@@ -115,6 +107,28 @@ class TmuxBackend:
     def reconnect(self) -> None:
         self.run("respawn-window", "-k", "-t", "tcar:")
 
+    def maintain(self, now: float) -> None:
+        if not self.config.restart_on_exit or now < self._next_maintenance:
+            return
+        self._next_maintenance = now + 0.25
+        rows = self.run("list-panes", "-s", "-t", "tcar", "-F", "#{window_id}\t#{pane_pid}\t#{pane_dead}")
+        for row in rows.splitlines():
+            window, pid, dead = row.split("\t")
+            if window not in self.windows:
+                continue
+            action = self.restarts.observe(window, pid, dead == "1", now)
+            if action == "restart":
+                self.run("respawn-window", "-k", "-t", window)
+            elif action == "failed":
+                self.run("set-option", "-w", "-t", window, "@tcar_failed", "1",
+                         ";", "set-option", "-g", "status", "on")
+                self._mode = None
+            elif action == "reset":
+                self.run("set-option", "-w", "-t", window, "@tcar_failed", "0")
+                if not self.restarts.has_failures:
+                    self.run("set-option", "-g", "status", "on" if self.config.status_bar else "off")
+                self._mode = None
+
     def action_keys(self, action: str) -> bytes:
         return prefix_sequence(self.config.prefix) + {
             "next": b"\x1b[C", "previous": b"\x1b[D", "reconnect": b"\x1b[H",
@@ -122,11 +136,14 @@ class TmuxBackend:
 
     def status(self, mode: str, prefix_pending: bool = False) -> None:
         state = (mode, prefix_pending)
-        if state == self._mode or not self.config.status_bar:
+        if state == self._mode or (not self.config.status_bar and not self.restarts.has_failures):
             return
         prefix = self.config.prefix.replace("#", "##")
         quit_key = self.config.bindings["quit"].replace("#", "##")
         right = f" {mode} | {prefix} + {quit_key}: quit "
+        restart = self.config.bindings["reconnect"].replace("#", "##")
+        right = (f"#{{?@tcar_failed,FAILED ({self.config.restart_limit}/{self.config.restart_window:g}s) | ,}}"
+                 + f"{prefix}+{restart}: retry | " + right)
         if prefix_pending:
             right = f" PREFIX: choose a key | {right}"
         self.run("set-option", "-g", "status-right", right)

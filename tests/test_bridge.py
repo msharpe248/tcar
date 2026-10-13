@@ -47,6 +47,7 @@ class LocalReaderBackend:
     def start(self, columns, lines): pass
     def client_argv(self): return [sys.executable, "-u", "-c", READER, INPUT]
     def status(self, *args): pass
+    def maintain(self, now): pass
     def select(self, delta): pass
     def action_keys(self, action): return b""
     def close(self): Path(CLOSED).write_text("closed")

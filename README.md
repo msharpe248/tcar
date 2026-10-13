@@ -136,6 +136,10 @@ idle_timeout = 30
 interval = 20
 auto_rotate = true
 status_bar = true
+restart_on_exit = false
+restart_limit = 3
+restart_window = 60
+restart_delay = 1
 
 [bindings]
 previous = "Left"
@@ -196,13 +200,17 @@ handling, color, Unicode, cursor modes, and separate retained screens. Manual
 switches travel in the same input stream as ordinary keys so a burst of typing
 around a switch reaches the appropriate machine in order.
 
-When a command or SSH connection exits, its terminal output remains in the
-pane's scrollback and a persistent notice shows the exit status or signal and
-your configured restart keys. The notice appears even when the program clears
-its screen or the status bar is hidden. The status bar also marks the machine
-**exited**. Use prefix + r to restart it. That binding
-also restarts a running command, so use it when you intend to reconnect.
-tcar does not automatically retry failed SSH logins. Quitting tcar closes all
+Set `restart_on_exit = true` to restart exited local commands and SSH sessions.
+The defaults wait one second before retrying and allow two automatic restarts.
+On the third restart attempt within a rolling 60 seconds, that session is marked
+**FAILED** and automatic retries stop. Other sessions keep running. The failure
+status is displayed even if you normally hide the status bar. `restart_limit`,
+`restart_window`, and `restart_delay` configure this policy.
+
+Use prefix + r to manually retry a failed session with a fresh restart budget.
+With automatic restarts disabled, an exited session waits for this manual action.
+The binding also restarts a running command, so use it when you intend to reconnect.
+Quitting tcar closes all
 its connections and local commands. Normal exit and handled termination signals
 restore the terminal and clean up the private server.
 

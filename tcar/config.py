@@ -43,6 +43,10 @@ class Config:
     auto_rotate: bool = True
     status_bar: bool = True
     bindings: dict[str, str] = field(default_factory=lambda: DEFAULT_BINDINGS.copy())
+    restart_on_exit: bool = False
+    restart_limit: int = 3
+    restart_window: float = 60
+    restart_delay: float = 1
 
     def input_bindings(self) -> dict[bytes, str]:
         prefix = prefix_sequence(self.prefix)
@@ -99,12 +103,13 @@ def load_config(path: Path) -> Config:
             raise ValueError(f"{name} must be a TOML table")
         tables[name] = table
     carousel, bindings, defaults = (tables[x] for x in ("carousel", "bindings", "defaults"))
-    _known(carousel, {"prefix", "idle_timeout", "interval", "auto_rotate", "status_bar"}, "carousel")
+    _known(carousel, {"prefix", "idle_timeout", "interval", "auto_rotate", "status_bar",
+                      "restart_on_exit", "restart_limit", "restart_window", "restart_delay"}, "carousel")
     _known(bindings, set(DEFAULT_BINDINGS), "bindings")
     _known(defaults, {"command", "ssh_args"}, "defaults")
     prefix = _string(carousel.get("prefix", "C-g"), "carousel.prefix")
     prefix_sequence(prefix)
-    for option in ("auto_rotate", "status_bar"):
+    for option in ("auto_rotate", "status_bar", "restart_on_exit"):
         if option in carousel and type(carousel[option]) is not bool:
             raise ValueError(f"carousel.{option} must be true or false")
     configured_bindings = {**DEFAULT_BINDINGS, **bindings}
@@ -138,9 +143,15 @@ def load_config(path: Path) -> Config:
                 raise ValueError(f"{label}.host must be an SSH alias or user@hostname")
             machines.append(Machine(name, host, _string(record.get("command", command), f"{label}.command"),
                                     _argv(record.get("ssh_args", list(ssh_args)), f"{label}.ssh_args")))
+    restart_limit = carousel.get("restart_limit", 3)
+    if type(restart_limit) is not int or restart_limit < 1:
+        raise ValueError("carousel.restart_limit must be a positive integer")
     config = Config(tuple(machines), prefix,
                     _duration(carousel.get("idle_timeout", 30), "carousel.idle_timeout", True),
                     _duration(carousel.get("interval", 20), "carousel.interval"),
-                    carousel.get("auto_rotate", True), carousel.get("status_bar", True), configured_bindings)
+                    carousel.get("auto_rotate", True), carousel.get("status_bar", True), configured_bindings,
+                    restart_on_exit=carousel.get("restart_on_exit", False), restart_limit=restart_limit,
+                    restart_window=_duration(carousel.get("restart_window", 60), "carousel.restart_window"),
+                    restart_delay=_duration(carousel.get("restart_delay", 1), "carousel.restart_delay", True))
     config.input_bindings()
     return config

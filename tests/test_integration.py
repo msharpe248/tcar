@@ -33,9 +33,6 @@ with open(path, "ab", buffering=0) as log:
             data = os.read(0, 65536)
             if not data: break
             log.write(data)
-            if data == b"q":
-                os.write(1, b"\\x1b[2J\\x1b[H")
-                break
 '''
 
 
@@ -110,47 +107,7 @@ class IntegrationTests(unittest.TestCase):
         self.addCleanup(self.backend.close)
         self.backend.start(100, 30)
         self.assertTrue(wait_for(lambda: self.backend.run("display-message", "-p", "-t", self.backend.windows[0], "#{pane_dead}") == "1"))
-        window = self.backend.windows[0]
-        wait_for(lambda: "restart" in self.backend.run("capture-pane", "-p", "-t", window))
-        self.assertIn("done", self.backend.run("capture-pane", "-p", "-S", "-", "-t", window))
-        visible = self.backend.run("capture-pane", "-p", "-t", window)
-        self.assertIn("command exited (status 0)", visible)
-        self.assertIn("Ctrl+G then r: restart", visible)
-
-    def test_cleared_exit_screen_shows_status_and_custom_restart_keys(self):
-        self.backend.close()
-        for status_bar in (True, False):
-            for exit_code in (0, 42):
-                with self.subTest(status_bar=status_bar, exit_code=exit_code):
-                    script = "import os,sys; os.write(1,b'\\x1b[?1049hmonitor\\x1b[?1049l\\x1b[2J\\x1b[H'); sys.exit(%d)" % exit_code
-                    config = Config((Machine("local", local_command=(sys.executable, "-c", script)),),
-                                    prefix="C-x", status_bar=status_bar)
-                    config.bindings["reconnect"] = "k"
-                    backend = TmuxBackend(config)
-                    try:
-                        backend.start(100, 30)
-                        window = backend.windows[0]
-                        wait_for(lambda: backend.run("display-message", "-p", "-t", window, "#{pane_dead}") == "1")
-                        # PTY closure can precede SIGCHLD and the exit notice's render.
-                        wait_for(lambda: "restart" in backend.run("capture-pane", "-p", "-t", window))
-                        visible = backend.run("capture-pane", "-p", "-t", window)
-                        self.assertIn(f"local: command exited (status {exit_code})", visible)
-                        self.assertIn("Ctrl+X then k: restart", visible)
-                    finally:
-                        backend.close()
-
-    def test_signal_exit_notice_and_literal_hash_prefix(self):
-        self.backend.close()
-        script = "import os,signal; os.kill(os.getpid(),signal.SIGTERM)"
-        self.backend = TmuxBackend(Config((Machine("local", local_command=(sys.executable, "-c", script)),), prefix="#"))
-        self.addCleanup(self.backend.close)
-        self.backend.start(100, 30)
-        window = self.backend.windows[0]
-        wait_for(lambda: self.backend.run("display-message", "-p", "-t", window, "#{pane_dead}") == "1")
-        wait_for(lambda: "restart" in self.backend.run("capture-pane", "-p", "-t", window))
-        visible = self.backend.run("capture-pane", "-p", "-t", window)
-        self.assertIn("command exited (signal ", visible)
-        self.assertIn("# then r: restart", visible)
+        self.assertIn("done", self.backend.run("capture-pane", "-p", "-t", self.backend.windows[0]))
 
     def test_single_local_session_can_rotate_without_exiting(self):
         self.backend.close()
@@ -160,6 +117,32 @@ class IntegrationTests(unittest.TestCase):
         self.backend.select(1)
         self.backend.select(-1)
         self.assertEqual(len(self.backend.run("list-windows", "-t", "tcar").splitlines()), 1)
+        self.assertEqual(self.backend.run("show-options", "-gv", "status"), "off")
+
+    def test_automatic_restart_stops_at_limit_and_manual_retry_resets(self):
+        self.backend.close()
+        counter = Path(self.directory.name) / "starts"
+        script = "from pathlib import Path; p=Path(%r); p.write_text((p.read_text() if p.exists() else '')+'x')" % str(counter)
+        machines = (Machine("crashing", local_command=(sys.executable, "-c", script)),
+                    self.backend.config.machines[1])
+        self.backend = TmuxBackend(Config(machines, status_bar=False, restart_on_exit=True, restart_delay=0))
+        self.addCleanup(self.backend.close)
+        self.backend.start(100, 30)
+        window = self.backend.windows[0]
+        healthy = self.backend.run("display-message", "-p", "-t", self.backend.windows[1], "#{pane_pid}")
+        for now in (0, 1, 2):
+            wait_for(lambda: self.backend.run("display-message", "-p", "-t", window, "#{pane_dead_status}") == "0")
+            self.backend.maintain(now)
+        self.assertEqual(counter.read_text(), "xxx")  # Initial launch and two automatic retries.
+        self.assertEqual(self.backend.run("display-message", "-p", "-t", window, "#{@tcar_failed}"), "1")
+        self.assertEqual(self.backend.run("show-options", "-gv", "status"), "on")
+        self.backend.maintain(100)
+        self.assertEqual(counter.read_text(), "xxx")
+        self.assertEqual(self.backend.run("display-message", "-p", "-t", self.backend.windows[1], "#{pane_pid}"), healthy)
+        self.backend.reconnect()
+        wait_for(lambda: counter.read_text() == "xxxx")
+        self.backend.maintain(101)
+        self.assertEqual(self.backend.run("display-message", "-p", "-t", window, "#{@tcar_failed}"), "0")
         self.assertEqual(self.backend.run("show-options", "-gv", "status"), "off")
 
     def test_bridge_input_order_prefix_rotation_resize_and_cleanup(self):
@@ -217,18 +200,6 @@ class IntegrationTests(unittest.TestCase):
         time.sleep(.15)
         pump()
         self.assertEqual(tmux("display-message", "-p", "-t", "tcar:", "#{window_name}"), "machine-2")
-        os.write(master, b"\x07 ")
-        wait_for(lambda: "paused" in tmux("show-options", "-gv", "status-right"), pump)
-        previous_pid = tmux("display-message", "-p", "-t", "tcar:", "#{pane_pid}")
-        os.write(master, b"q")
-        wait_for(lambda: tmux("display-message", "-p", "-t", "tcar:", "#{pane_dead}") == "1", pump)
-        wait_for(lambda: "restart" in tmux("capture-pane", "-p", "-t", "tcar:"), pump)
-        self.assertIn("Ctrl+G then r: restart", tmux("capture-pane", "-p", "-t", "tcar:"))
-        os.write(master, b"\x07r")
-        wait_for(lambda: tmux("display-message", "-p", "-t", "tcar:", "#{pane_dead}") == "0" and
-                 tmux("display-message", "-p", "-t", "tcar:", "#{pane_pid}") != previous_pid, pump)
-        wait_for(lambda: "machine-2 alive" in tmux("capture-pane", "-p", "-t", "tcar:"), pump)
-        self.assertNotIn("command exited", tmux("capture-pane", "-p", "-t", "tcar:"))
         os.write(master, b"\x07q")
         wait_for(lambda: process.poll() is not None, pump)
         self.assertEqual(process.returncode, 0, output.decode(errors="replace"))

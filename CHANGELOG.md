@@ -2,10 +2,10 @@
 
 ## 1.0.1 — 2026-10-13
 
-- Show a persistent exit notice when a local command or SSH connection ends,
-  including its exit status or signal and the configured restart keys.
-- Make cleared exit screens understandable even with the status bar hidden.
-- Verify restarting a command from a blank exited view through the live client.
+- Add configurable automatic restart for exited local commands and SSH sessions.
+- Stop automatic retries and mark a session FAILED on the third restart attempt
+  within a rolling minute, keeping other sessions running.
+- Allow manual retry with prefix + r to clear the failure and restart budget.
 
 ## 1.0.0 — 2026-10-12
 

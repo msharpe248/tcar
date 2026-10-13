@@ -5,6 +5,11 @@ interval = 20          # seconds per machine while rotating
 auto_rotate = true     # false starts paused until prefix + Space
 status_bar = true      # false gives the application every terminal row
 
+restart_on_exit = false # Automatically restart exited commands and SSH sessions.
+restart_limit = 3       # Fail on the third attempt within the rolling window.
+restart_window = 60     # Seconds in the rolling restart window.
+restart_delay = 1       # Seconds to wait before an automatic restart.
+
 [bindings]             # All bindings require the prefix first.
 previous = "Left"
 next = "Right"

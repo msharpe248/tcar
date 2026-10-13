@@ -134,6 +134,7 @@ class Carousel:
                 if not self.stopping and not pending and self.rotation.tick(now):
                     self.backend.select(1)
                 if not self.stopping:
+                    self.backend.maintain(now)
                     self.backend.status(self.rotation.mode, self.router.prefixed)
         finally:
             self.backend.close()
