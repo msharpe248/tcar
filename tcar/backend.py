@@ -72,7 +72,8 @@ class TmuxBackend:
             "status-style": "bg=colour234,fg=colour250", "status-left": " tcar ",
             "status-left-length": "8", "status-right-length": "80", "status-interval": "1",
             "status-justify": "left", "automatic-rename": "off", "allow-rename": "off",
-            "remain-on-exit": "on", "window-size": "largest", "aggressive-resize": "off",
+            "remain-on-exit": "on", "remain-on-exit-format": "",
+            "window-size": "largest", "aggressive-resize": "off",
             "window-status-format": " #I:#W#{?pane_dead, (exited),} ",
             "window-status-current-format": "#[bg=colour24,fg=colour255,bold] #I:#W#{?pane_dead, (exited),} #[default]",
         }

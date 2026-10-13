@@ -24,7 +24,8 @@ def build(output: Path, interpreter: str = "/usr/bin/env python3") -> Path:
     destination = output / "tcar.pyz"
     with tempfile.TemporaryDirectory(prefix="tcar-build-") as directory:
         stage = Path(directory)
-        shutil.copytree(ROOT / "tcar", stage / "tcar", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        shutil.copytree(ROOT / "tcar", stage / "tcar",
+                        ignore=shutil.ignore_patterns(".git", ".hg", ".svn", "__pycache__", "*.pyc"))
         shutil.copy2(ROOT / "LICENSE", stage / "LICENSE")
         # zipapp's generated main() discards its return value. Preserve CLI errors.
         (stage / "__main__.py").write_text("from tcar.app import main\nraise SystemExit(main())\n")

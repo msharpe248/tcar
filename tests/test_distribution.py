@@ -1,8 +1,10 @@
 import hashlib
+import importlib.util
 import os
 from pathlib import Path
 import select
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -53,6 +55,23 @@ class DistributionTests(unittest.TestCase):
 
     def test_source_and_packaged_config_match(self):
         self.assertEqual((ROOT / "tcar/data/config.example.toml").read_bytes(), (ROOT / "config.example.toml").read_bytes())
+
+    def test_nested_git_metadata_is_excluded_from_executable(self):
+        fixture = Path(self.directory.name) / "nested-repo"
+        fixture.mkdir()
+        for name in ("LICENSE", "pyproject.toml"):
+            shutil.copy2(ROOT / name, fixture / name)
+        shutil.copytree(ROOT / "tcar", fixture / "tcar", ignore=shutil.ignore_patterns(".git", "__pycache__"))
+        metadata = fixture / "tcar" / ".git"
+        metadata.mkdir()
+        (metadata / "config").write_text("metadata must not ship")
+        spec = importlib.util.spec_from_file_location("release_builder", ROOT / "scripts/build_release.py")
+        builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(builder)
+        builder.ROOT = fixture
+        archive = builder.build(fixture / "dist")
+        with zipfile.ZipFile(archive) as package:
+            self.assertFalse(any(".git" in Path(name).parts for name in package.namelist()))
 
     def test_demo_child_runs_from_archive_outside_checkout(self):
         master, slave = os.openpty()
