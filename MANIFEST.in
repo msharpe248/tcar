@@ -1,0 +1,4 @@
+include LICENSE CHANGELOG.md config.example.toml config.local.toml
+recursive-include scripts *.py *.sh
+recursive-include tests *.py
+recursive-include tcar/data *.toml

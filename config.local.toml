@@ -1,0 +1,4 @@
+# Run the local machine's btop without SSH.
+[[machines]]
+name = "local"
+local_command = ["btop"]

@@ -1,0 +1,94 @@
+name: Test, build, and release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ['3.11', '3.14']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install tmux on Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Install tmux on macOS
+        if: runner.os == 'macOS'
+        run: command -v tmux || brew install tmux
+      - name: Run all tests, including live tmux sessions
+        env:
+          TCAR_REQUIRE_INTEGRATION: '1'
+          TERM: xterm-256color
+        run: python -m unittest discover -v
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - name: Install build tools
+        run: python -m pip install build
+      - name: Build wheel, source distribution, and standalone executable
+        run: |
+          python -m build
+          python scripts/build_release.py
+      - name: Verify the installed wheel and standalone executable
+        run: |
+          python -m venv /tmp/tcar-wheel-test
+          /tmp/tcar-wheel-test/bin/pip install --no-deps dist/*.whl
+          cd /tmp
+          /tmp/tcar-wheel-test/bin/tcar --version
+          python "$GITHUB_WORKSPACE/dist/tcar.pyz" --version
+          python "$GITHUB_WORKSPACE/dist/tcar.pyz" --init-config /tmp/tcar-example.toml
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-files
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release-files
+          path: dist
+      - name: Verify tag matches the application version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from tcar import __version__
+          if os.environ['RELEASE_TAG'] != f'v{__version__}':
+              raise SystemExit('release tag does not match the application version')
+          PY
+      - name: Publish release and installation assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" dist/* --verify-tag --title "TermCarousel ${RELEASE_TAG#v}" --notes-file CHANGELOG.md

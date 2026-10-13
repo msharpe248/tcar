@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tcar"
+version = "1.0.0"
+description = "A terminal carousel for persistent local and SSH sessions"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Michael Sharpe"}]
+
+[project.urls]
+Homepage = "https://github.com/msharpe248/tcar"
+Repository = "https://github.com/msharpe248/tcar"
+Issues = "https://github.com/msharpe248/tcar/issues"
+
+[project.scripts]
+tcar = "tcar.app:main"
+
+[tool.setuptools.packages.find]
+include = ["tcar*"]
+
+[tool.setuptools.package-data]
+tcar = ["data/*.toml"]
