@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1 — 2026-10-13
+
+- Show a persistent exit notice when a local command or SSH connection ends,
+  including its exit status or signal and the configured restart keys.
+- Make cleared exit screens understandable even with the status bar hidden.
+- Verify restarting a command from a blank exited view through the live client.
+
 ## 1.0.0 — 2026-10-12
 
 First release of **TermCarousel**, the `tcar` terminal carousel.

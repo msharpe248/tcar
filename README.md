@@ -14,10 +14,10 @@ tmux with `brew install tmux`; on Linux, use your distribution's package manager
 Remote machines need SSH and the command you want to run. They do not need tmux,
 Python, or tcar.
 
-Install version 1.0.0 with pipx:
+Install version 1.0.1 with pipx:
 
 ```sh
-pipx install https://github.com/msharpe248/tcar/releases/download/v1.0.0/tcar-1.0.0-py3-none-any.whl
+pipx install https://github.com/msharpe248/tcar/releases/download/v1.0.1/tcar-1.0.1-py3-none-any.whl
 tcar --demo
 ```
 
@@ -27,7 +27,7 @@ Python package dependencies or virtual environment:
 
 ```sh
 mkdir -p ~/.local/bin
-curl -fL https://github.com/msharpe248/tcar/releases/download/v1.0.0/tcar.pyz -o ~/.local/bin/tcar
+curl -fL https://github.com/msharpe248/tcar/releases/download/v1.0.1/tcar.pyz -o ~/.local/bin/tcar
 chmod +x ~/.local/bin/tcar
 ~/.local/bin/tcar --demo
 ```
@@ -196,8 +196,11 @@ handling, color, Unicode, cursor modes, and separate retained screens. Manual
 switches travel in the same input stream as ordinary keys so a burst of typing
 around a switch reaches the appropriate machine in order.
 
-When a command or SSH connection exits, its last screen remains available and
-the status bar marks it **exited**. Use prefix + r to restart it. That binding
+When a command or SSH connection exits, its terminal output remains in the
+pane's scrollback and a persistent notice shows the exit status or signal and
+your configured restart keys. The notice appears even when the program clears
+its screen or the status bar is hidden. The status bar also marks the machine
+**exited**. Use prefix + r to restart it. That binding
 also restarts a running command, so use it when you intend to reconnect.
 tcar does not automatically retry failed SSH logins. Quitting tcar closes all
 its connections and local commands. Normal exit and handled termination signals
@@ -230,7 +233,7 @@ cleanup. They skip explicitly when tmux is missing or a sandbox prohibits Unix
 sockets. Run them in your normal terminal to exercise the live backend.
 
 CI runs the complete suite on macOS and Linux with Python 3.11 and 3.14. Live
-tmux tests are required in CI. A version tag, such as `v1.0.0`, publishes a
+tmux tests are required in CI. A version tag, such as `v1.0.1`, publishes a
 GitHub release only after the tests and package builds pass. Releases include
 a wheel, source distribution, standalone executable, and SHA-256 checksums.
 

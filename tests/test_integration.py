@@ -33,6 +33,9 @@ with open(path, "ab", buffering=0) as log:
             data = os.read(0, 65536)
             if not data: break
             log.write(data)
+            if data == b"q":
+                os.write(1, b"\\x1b[2J\\x1b[H")
+                break
 '''
 
 
@@ -107,7 +110,43 @@ class IntegrationTests(unittest.TestCase):
         self.addCleanup(self.backend.close)
         self.backend.start(100, 30)
         self.assertTrue(wait_for(lambda: self.backend.run("display-message", "-p", "-t", self.backend.windows[0], "#{pane_dead}") == "1"))
-        self.assertIn("done", self.backend.run("capture-pane", "-p", "-t", self.backend.windows[0]))
+        window = self.backend.windows[0]
+        self.assertIn("done", self.backend.run("capture-pane", "-p", "-S", "-", "-t", window))
+        visible = self.backend.run("capture-pane", "-p", "-t", window)
+        self.assertIn("command exited (status 0)", visible)
+        self.assertIn("Ctrl+G then r: restart", visible)
+
+    def test_cleared_exit_screen_shows_status_and_custom_restart_keys(self):
+        self.backend.close()
+        for status_bar in (True, False):
+            for exit_code in (0, 42):
+                with self.subTest(status_bar=status_bar, exit_code=exit_code):
+                    script = "import os,sys; os.write(1,b'\\x1b[?1049hmonitor\\x1b[?1049l\\x1b[2J\\x1b[H'); sys.exit(%d)" % exit_code
+                    config = Config((Machine("local", local_command=(sys.executable, "-c", script)),),
+                                    prefix="C-x", status_bar=status_bar)
+                    config.bindings["reconnect"] = "k"
+                    backend = TmuxBackend(config)
+                    try:
+                        backend.start(100, 30)
+                        window = backend.windows[0]
+                        wait_for(lambda: backend.run("display-message", "-p", "-t", window, "#{pane_dead}") == "1")
+                        visible = backend.run("capture-pane", "-p", "-t", window)
+                        self.assertIn(f"local: command exited (status {exit_code})", visible)
+                        self.assertIn("Ctrl+X then k: restart", visible)
+                    finally:
+                        backend.close()
+
+    def test_signal_exit_notice_and_literal_hash_prefix(self):
+        self.backend.close()
+        script = "import os,signal; os.kill(os.getpid(),signal.SIGTERM)"
+        self.backend = TmuxBackend(Config((Machine("local", local_command=(sys.executable, "-c", script)),), prefix="#"))
+        self.addCleanup(self.backend.close)
+        self.backend.start(100, 30)
+        window = self.backend.windows[0]
+        wait_for(lambda: self.backend.run("display-message", "-p", "-t", window, "#{pane_dead}") == "1")
+        visible = self.backend.run("capture-pane", "-p", "-t", window)
+        self.assertIn("command exited (signal ", visible)
+        self.assertIn("# then r: restart", visible)
 
     def test_single_local_session_can_rotate_without_exiting(self):
         self.backend.close()
@@ -174,6 +213,17 @@ class IntegrationTests(unittest.TestCase):
         time.sleep(.15)
         pump()
         self.assertEqual(tmux("display-message", "-p", "-t", "tcar:", "#{window_name}"), "machine-2")
+        os.write(master, b"\x07 ")
+        wait_for(lambda: "paused" in tmux("show-options", "-gv", "status-right"), pump)
+        previous_pid = tmux("display-message", "-p", "-t", "tcar:", "#{pane_pid}")
+        os.write(master, b"q")
+        wait_for(lambda: tmux("display-message", "-p", "-t", "tcar:", "#{pane_dead}") == "1", pump)
+        self.assertIn("Ctrl+G then r: restart", tmux("capture-pane", "-p", "-t", "tcar:"))
+        os.write(master, b"\x07r")
+        wait_for(lambda: tmux("display-message", "-p", "-t", "tcar:", "#{pane_dead}") == "0" and
+                 tmux("display-message", "-p", "-t", "tcar:", "#{pane_pid}") != previous_pid, pump)
+        wait_for(lambda: "machine-2 alive" in tmux("capture-pane", "-p", "-t", "tcar:"), pump)
+        self.assertNotIn("command exited", tmux("capture-pane", "-p", "-t", "tcar:"))
         os.write(master, b"\x07q")
         wait_for(lambda: process.poll() is not None, pump)
         self.assertEqual(process.returncode, 0, output.decode(errors="replace"))

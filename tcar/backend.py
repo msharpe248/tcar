@@ -60,6 +60,17 @@ class TmuxBackend:
             raise BackendError(result.stderr.strip() or "tmux did not create its server socket")
         return result.stdout.strip()
 
+    def exit_notice(self) -> str:
+        def label(key: str) -> str:
+            if len(key) == 3 and key[:2].lower() == "c-":
+                key = "Ctrl+" + key[2].upper()
+            return key.replace("#", "##")
+
+        prefix = label(self.config.prefix)
+        restart = label(self.config.bindings["reconnect"])
+        reason = "#{?pane_dead_signal,signal #{pane_dead_signal},status #{pane_dead_status}}"
+        return "#{window_name}: command exited (" + reason + f"). {prefix} then {restart}: restart"
+
     def start(self, columns: int, lines: int) -> None:
         # Configure remain-on-exit before launching programs, even short-lived ones.
         self.run("new-session", "-d", "-s", "tcar", "-x", str(columns), "-y", str(lines),
@@ -72,7 +83,7 @@ class TmuxBackend:
             "status-style": "bg=colour234,fg=colour250", "status-left": " tcar ",
             "status-left-length": "8", "status-right-length": "80", "status-interval": "1",
             "status-justify": "left", "automatic-rename": "off", "allow-rename": "off",
-            "remain-on-exit": "on", "remain-on-exit-format": "",
+            "remain-on-exit": "on", "remain-on-exit-format": self.exit_notice(),
             "window-size": "largest", "aggressive-resize": "off",
             "window-status-format": " #I:#W#{?pane_dead, (exited),} ",
             "window-status-current-format": "#[bg=colour24,fg=colour255,bold] #I:#W#{?pane_dead, (exited),} #[default]",
